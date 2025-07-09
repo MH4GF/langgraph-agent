@@ -10,7 +10,7 @@ import { END, START, StateGraph } from "@langchain/langgraph";
 import { AIMessage, BaseMessage, HumanMessage } from "@langchain/core/messages";
 import { RunnableConfig } from "@langchain/core/runnables";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
-import { randomUUID } from "crypto";
+import { createClient } from "@supabase/supabase-js";
 
 // PostgreSQL connection string for Supabase local
 const memory = PostgresSaver.fromConnString(
@@ -19,6 +19,28 @@ const memory = PostgresSaver.fromConnString(
 
 // Setup the PostgreSQL checkpointer
 await memory.setup();
+
+// Initialize Supabase client for local development
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_ANON_KEY!
+);
+
+// Create a new design session
+const createDesignSession = async () => {
+  const { data, error } = await supabase
+    .from("design_sessions")
+    .insert({})
+    .select()
+    .single();
+  
+  if (error) {
+    console.error("Error creating design session:", error);
+    throw error;
+  }
+  
+  return data;
+};
 
 // type TimelineItem = {
 //   id: string;
@@ -92,7 +114,11 @@ const workflow = new StateGraph(GraphState)
 
 const graph = workflow.compile({ checkpointer: memory });
 
-const config = { configurable: { thread_id: `conversation-${randomUUID()}` } };
+// Create a new design session and use its ID as thread_id
+const designSession = await createDesignSession();
+const config = { configurable: { thread_id: designSession.id } };
+
+console.log(`Created design session: ${designSession.id}`);
 
 // Get command line arguments (skip first 2 which are node and script path)
 const args = process.argv.slice(2);
