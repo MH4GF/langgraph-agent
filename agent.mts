@@ -30,22 +30,33 @@ const GraphState = Annotation.Root({
   }),
 });
 
-const searchTool = tool(
-  async ({}: { query: string }) => {
+const schemaDesignTool = tool(
+  async ({ entityName, requirements }: { entityName: string; requirements: string }) => {
     // This is a placeholder for the actual implementation
-    return "Cold, with a low of 13 ℃";
+    return `Schema design for ${entityName}:
+    
+Table: ${entityName.toLowerCase()}
+Columns:
+- id: Primary key (UUID/Integer)
+- created_at: Timestamp (NOT NULL)
+- updated_at: Timestamp (NOT NULL)
+
+Based on requirements: ${requirements}
+
+Consider adding indexes, constraints, and relationships as needed.`;
   },
   {
-    name: "search",
+    name: "schema_design",
     description:
-      "Use to surf the web, fetch current information, check the weather, and retrieve other information.",
+      "Use to design database schemas, recommend table structures, and help with database modeling.",
     schema: z.object({
-      query: z.string().describe("The query to use in your search."),
+      entityName: z.string().describe("The name of the entity/table to design schema for."),
+      requirements: z.string().describe("The requirements and specifications for the schema."),
     }),
   }
 );
 
-const tools = [searchTool];
+const tools = [schemaDesignTool];
 
 const toolNode = new ToolNode(tools);
 const model = new ChatOpenAI({ model: "gpt-4o" });
