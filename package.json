@@ -1,4 +1,19 @@
 {
+  "name": "langgraph-agent",
+  "version": "1.0.0",
+  "description": "LangGraph agent with PostgreSQL memory persistence using Supabase",
+  "type": "module",
+  "main": "agent.mts",
+  "scripts": {
+    "start": "tsx agent.mts",
+    "dev": "tsx watch agent.mts",
+    "db:start": "supabase start",
+    "db:stop": "supabase stop",
+    "db:status": "supabase status",
+    "db:studio": "supabase studio",
+    "db:reset": "supabase db reset",
+    "setup": "npm install && npm run db:start"
+  },
   "dependencies": {
     "@langchain/community": "^0.3.48",
     "@langchain/core": "^0.3.62",
@@ -8,6 +23,7 @@
     "@types/pg": "^8.15.4",
     "dotenv": "^17.1.0",
     "pg": "^8.16.3",
-    "supabase": "^2.30.4"
+    "supabase": "^2.30.4",
+    "tsx": "^4.20.3"
   }
 }
