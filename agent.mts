@@ -93,12 +93,12 @@ const createDesignSession = async () => {
     .insert({})
     .select()
     .single();
-  
+
   if (error) {
     console.error("Error creating design session:", error);
     throw error;
   }
-  
+
   return data;
 };
 
@@ -118,7 +118,7 @@ const schemaDesignTool = tool(
     try {
       // Validate and parse parameters
       const params = MigrationOperationSchema.parse(rawParams);
-      
+
       // Get design session ID from config
       const designSessionId = config?.configurable?.thread_id;
       if (!designSessionId) {
@@ -142,7 +142,7 @@ const schemaDesignTool = tool(
             { name: "created_at", type: "TIMESTAMP WITH TIME ZONE", constraints: ["NOT NULL"], default: "now()" },
             { name: "updated_at", type: "TIMESTAMP WITH TIME ZONE", constraints: ["NOT NULL"], default: "now()" }
           ];
-          
+
           migrationStructure = {
             ...migrationStructure,
             columns: defaultColumns,
@@ -248,7 +248,7 @@ const schemaDesignTool = tool(
 
       // Return formatted response
       return `Migration ${params.operationType} (Version ${nextVersion}):
-    
+
 Operation: ${operationDescription}
 Table: ${params.tableName}
 
@@ -261,21 +261,21 @@ Migration saved to database with ID: ${savedSchema.id}`;
 
     } catch (error) {
       console.error("Error in schemaDesignTool:", error);
-      
+
       // Handle validation errors specifically
       if (error instanceof z.ZodError) {
         return `Schema validation failed:
 ${error.errors.map(err => `- ${err.path.join('.')}: ${err.message}`).join('\n')}`;
       }
-      
+
       // Try to get operation info from raw params for error reporting
       const operationType = rawParams?.operationType || 'UNKNOWN';
       const tableName = rawParams?.tableName || 'UNKNOWN';
       const requirements = rawParams?.requirements || 'N/A';
-      
+
       // Fallback to simple response if database operations fail
       return `Migration ${operationType} for table "${tableName}":
-    
+
 Error: Could not save to database - ${error instanceof Error ? error.message : 'Unknown error'}
 
 Based on requirements: ${requirements}`;
@@ -359,6 +359,6 @@ for await (const { messages } of await graph.stream(inputs, {
   streamMode: "values",
 })) {
   const msg = messages[messages?.length - 1];
-  console.log(msg);
+  console.dir(msg, { depth: null });
   console.log("-----\n");
 }
