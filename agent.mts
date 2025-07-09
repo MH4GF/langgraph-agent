@@ -10,6 +10,7 @@ import { END, START, StateGraph } from "@langchain/langgraph";
 import { AIMessage, BaseMessage, HumanMessage } from "@langchain/core/messages";
 import { RunnableConfig } from "@langchain/core/runnables";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
+import { randomUUID } from "crypto";
 
 // PostgreSQL connection string for Supabase local
 const memory = PostgresSaver.fromConnString(
@@ -91,7 +92,7 @@ const workflow = new StateGraph(GraphState)
 
 const graph = workflow.compile({ checkpointer: memory });
 
-const config = { configurable: { thread_id: "conversation-num-1" } };
+const config = { configurable: { thread_id: `conversation-${randomUUID()}` } };
 
 // Get command line arguments (skip first 2 which are node and script path)
 const args = process.argv.slice(2);
