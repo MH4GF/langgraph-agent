@@ -26,6 +26,66 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY!
 );
 
+// Zod schemas for migration operations
+const ColumnSchema = z.object({
+  name: z.string(),
+  type: z.string(),
+  constraints: z.array(z.string()).optional(),
+  default: z.string().optional(),
+  nullable: z.boolean().optional(),
+});
+
+const BaseOperationSchema = z.object({
+  operationType: z.enum(["CREATE_TABLE", "ALTER_TABLE", "CREATE_INDEX", "DROP_INDEX", "ADD_CONSTRAINT", "DROP_CONSTRAINT"]),
+  tableName: z.string(),
+  requirements: z.string(),
+});
+
+const CreateTableSchema = BaseOperationSchema.extend({
+  operationType: z.literal("CREATE_TABLE"),
+  entityName: z.string().optional(),
+  columns: z.array(ColumnSchema).optional(),
+});
+
+const AlterTableSchema = BaseOperationSchema.extend({
+  operationType: z.literal("ALTER_TABLE"),
+  columns: z.array(ColumnSchema).optional(),
+});
+
+const CreateIndexSchema = BaseOperationSchema.extend({
+  operationType: z.literal("CREATE_INDEX"),
+  indexName: z.string(),
+  indexColumns: z.array(z.string()),
+});
+
+const DropIndexSchema = BaseOperationSchema.extend({
+  operationType: z.literal("DROP_INDEX"),
+  indexName: z.string(),
+});
+
+const AddConstraintSchema = BaseOperationSchema.extend({
+  operationType: z.literal("ADD_CONSTRAINT"),
+  constraintName: z.string(),
+  constraintType: z.enum(["PRIMARY_KEY", "FOREIGN_KEY", "UNIQUE", "CHECK"]),
+  constraintDefinition: z.string(),
+});
+
+const DropConstraintSchema = BaseOperationSchema.extend({
+  operationType: z.literal("DROP_CONSTRAINT"),
+  constraintName: z.string(),
+});
+
+const MigrationOperationSchema = z.discriminatedUnion("operationType", [
+  CreateTableSchema,
+  AlterTableSchema,
+  CreateIndexSchema,
+  DropIndexSchema,
+  AddConstraintSchema,
+  DropConstraintSchema,
+]);
+
+type MigrationOperation = z.infer<typeof MigrationOperationSchema>;
+
 // Create a new design session
 const createDesignSession = async () => {
   const { data, error } = await supabase
@@ -54,27 +114,194 @@ const GraphState = Annotation.Root({
 });
 
 const schemaDesignTool = tool(
-  async ({ entityName, requirements }: { entityName: string; requirements: string }) => {
-    // This is a placeholder for the actual implementation
-    return `Schema design for ${entityName}:
+  async (rawParams: any, config?: RunnableConfig) => {
+    try {
+      // Validate and parse parameters
+      const params = MigrationOperationSchema.parse(rawParams);
+      
+      // Get design session ID from config
+      const designSessionId = config?.configurable?.thread_id;
+      if (!designSessionId) {
+        throw new Error("Design session ID not found in config");
+      }
+
+      let migrationStructure: any = {
+        operationType: params.operationType,
+        tableName: params.tableName,
+        requirements: params.requirements,
+        timestamp: new Date().toISOString()
+      };
+
+      let sqlStatements: string[] = [];
+      let operationDescription = "";
+
+      switch (params.operationType) {
+        case "CREATE_TABLE":
+          const defaultColumns = params.columns || [
+            { name: "id", type: "UUID", constraints: ["PRIMARY KEY"], default: "gen_random_uuid()" },
+            { name: "created_at", type: "TIMESTAMP WITH TIME ZONE", constraints: ["NOT NULL"], default: "now()" },
+            { name: "updated_at", type: "TIMESTAMP WITH TIME ZONE", constraints: ["NOT NULL"], default: "now()" }
+          ];
+          
+          migrationStructure = {
+            ...migrationStructure,
+            columns: defaultColumns,
+            indexes: [
+              { name: `idx_${params.tableName}_created_at`, columns: ["created_at"] }
+            ],
+            triggers: [
+              { name: `update_${params.tableName}_updated_at`, event: "BEFORE UPDATE", function: "update_updated_at_column()" }
+            ]
+          };
+
+          sqlStatements.push(`CREATE TABLE "${params.tableName}" (${defaultColumns.map(col => {
+            const constraints = col.constraints ? col.constraints.join(' ') : '';
+            const defaultVal = col.default ? `DEFAULT ${col.default}` : '';
+            const nullable = col.nullable === false ? 'NOT NULL' : '';
+            return `"${col.name}" ${col.type} ${constraints} ${defaultVal} ${nullable}`.trim();
+          }).join(', ')});`);
+
+          operationDescription = `Created table "${params.tableName}" with ${defaultColumns.length} columns`;
+          break;
+
+        case "ALTER_TABLE":
+          if (params.columns) {
+            migrationStructure.columns = params.columns;
+            params.columns.forEach(col => {
+              const constraints = col.constraints ? col.constraints.join(' ') : '';
+              const defaultVal = col.default ? `DEFAULT ${col.default}` : '';
+              const nullable = col.nullable === false ? 'NOT NULL' : '';
+              sqlStatements.push(`ALTER TABLE "${params.tableName}" ADD COLUMN "${col.name}" ${col.type} ${constraints} ${defaultVal} ${nullable};`.trim());
+            });
+            operationDescription = `Added ${params.columns.length} column(s) to table "${params.tableName}"`;
+          }
+          break;
+
+        case "CREATE_INDEX":
+          if (params.indexName && params.indexColumns) {
+            migrationStructure.indexName = params.indexName;
+            migrationStructure.indexColumns = params.indexColumns;
+            sqlStatements.push(`CREATE INDEX "${params.indexName}" ON "${params.tableName}" (${params.indexColumns.map(col => `"${col}"`).join(', ')});`);
+            operationDescription = `Created index "${params.indexName}" on table "${params.tableName}"`;
+          }
+          break;
+
+        case "DROP_INDEX":
+          if (params.indexName) {
+            migrationStructure.indexName = params.indexName;
+            sqlStatements.push(`DROP INDEX "${params.indexName}";`);
+            operationDescription = `Dropped index "${params.indexName}"`;
+          }
+          break;
+
+        case "ADD_CONSTRAINT":
+          if (params.constraintName && params.constraintDefinition) {
+            migrationStructure.constraintName = params.constraintName;
+            migrationStructure.constraintType = params.constraintType;
+            migrationStructure.constraintDefinition = params.constraintDefinition;
+            sqlStatements.push(`ALTER TABLE "${params.tableName}" ADD CONSTRAINT "${params.constraintName}" ${params.constraintDefinition};`);
+            operationDescription = `Added constraint "${params.constraintName}" to table "${params.tableName}"`;
+          }
+          break;
+
+        case "DROP_CONSTRAINT":
+          if (params.constraintName) {
+            migrationStructure.constraintName = params.constraintName;
+            sqlStatements.push(`ALTER TABLE "${params.tableName}" DROP CONSTRAINT "${params.constraintName}";`);
+            operationDescription = `Dropped constraint "${params.constraintName}" from table "${params.tableName}"`;
+          }
+          break;
+      }
+
+      migrationStructure.sqlStatements = sqlStatements;
+
+      // Get current version number for this design session
+      const { data: existingVersions, error: versionError } = await supabase
+        .from("schema_versions")
+        .select("version")
+        .eq("design_session_id", designSessionId)
+        .order("version", { ascending: false })
+        .limit(1);
+
+      if (versionError) {
+        console.error("Error fetching existing versions:", versionError);
+        throw versionError;
+      }
+
+      const nextVersion = existingVersions.length > 0 ? existingVersions[0].version + 1 : 1;
+
+      // Save schema to database
+      const { data: savedSchema, error: saveError } = await supabase
+        .from("schema_versions")
+        .insert({
+          design_session_id: designSessionId,
+          version: nextVersion,
+          migration: migrationStructure
+        })
+        .select()
+        .single();
+
+      if (saveError) {
+        console.error("Error saving schema:", saveError);
+        throw saveError;
+      }
+
+      // Return formatted response
+      return `Migration ${params.operationType} (Version ${nextVersion}):
     
-Table: ${entityName.toLowerCase()}
-Columns:
-- id: Primary key (UUID/Integer)
-- created_at: Timestamp (NOT NULL)
-- updated_at: Timestamp (NOT NULL)
+Operation: ${operationDescription}
+Table: ${params.tableName}
 
-Based on requirements: ${requirements}
+SQL Statements:
+${sqlStatements.map(sql => `  ${sql}`).join('\n')}
 
-Consider adding indexes, constraints, and relationships as needed.`;
+Based on requirements: ${params.requirements}
+
+Migration saved to database with ID: ${savedSchema.id}`;
+
+    } catch (error) {
+      console.error("Error in schemaDesignTool:", error);
+      
+      // Handle validation errors specifically
+      if (error instanceof z.ZodError) {
+        return `Schema validation failed:
+${error.errors.map(err => `- ${err.path.join('.')}: ${err.message}`).join('\n')}`;
+      }
+      
+      // Try to get operation info from raw params for error reporting
+      const operationType = rawParams?.operationType || 'UNKNOWN';
+      const tableName = rawParams?.tableName || 'UNKNOWN';
+      const requirements = rawParams?.requirements || 'N/A';
+      
+      // Fallback to simple response if database operations fail
+      return `Migration ${operationType} for table "${tableName}":
+    
+Error: Could not save to database - ${error instanceof Error ? error.message : 'Unknown error'}
+
+Based on requirements: ${requirements}`;
+    }
   },
   {
     name: "schema_design",
     description:
       "Use to design database schemas, recommend table structures, and help with database modeling.",
     schema: z.object({
-      entityName: z.string().describe("The name of the entity/table to design schema for."),
-      requirements: z.string().describe("The requirements and specifications for the schema."),
+      operationType: z.enum(["CREATE_TABLE", "ALTER_TABLE", "CREATE_INDEX", "DROP_INDEX", "ADD_CONSTRAINT", "DROP_CONSTRAINT"]).describe("The type of database operation to perform."),
+      tableName: z.string().describe("The name of the table to operate on."),
+      entityName: z.string().optional().describe("The name of the entity (for CREATE_TABLE operations)."),
+      requirements: z.string().describe("The requirements and specifications for the operation."),
+      columns: z.array(z.object({
+        name: z.string(),
+        type: z.string(),
+        constraints: z.array(z.string()).optional(),
+        default: z.string().optional(),
+        nullable: z.boolean().optional()
+      })).optional().describe("Column definitions for CREATE_TABLE or ALTER_TABLE operations."),
+      indexName: z.string().optional().describe("Index name for CREATE_INDEX or DROP_INDEX operations."),
+      indexColumns: z.array(z.string()).optional().describe("Columns to include in index."),
+      constraintName: z.string().optional().describe("Constraint name for ADD_CONSTRAINT or DROP_CONSTRAINT operations."),
+      constraintType: z.enum(["PRIMARY_KEY", "FOREIGN_KEY", "UNIQUE", "CHECK"]).optional().describe("Type of constraint to add."),
+      constraintDefinition: z.string().optional().describe("Constraint definition SQL."),
     }),
   }
 );
