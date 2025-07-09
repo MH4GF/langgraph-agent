@@ -1,0 +1,13 @@
+{
+  "dependencies": {
+    "@langchain/community": "^0.3.48",
+    "@langchain/core": "^0.3.62",
+    "@langchain/langgraph": "^0.3.7",
+    "@langchain/langgraph-checkpoint-postgres": "^0.0.5",
+    "@langchain/openai": "^0.5.18",
+    "@types/pg": "^8.15.4",
+    "dotenv": "^17.1.0",
+    "pg": "^8.16.3",
+    "supabase": "^2.30.4"
+  }
+}
