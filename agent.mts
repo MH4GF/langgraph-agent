@@ -81,20 +81,19 @@ const workflow = new StateGraph(GraphState)
 const graph = workflow.compile({ checkpointer: memory });
 
 const config = { configurable: { thread_id: "conversation-num-1" } };
+
+// Get command line arguments (skip first 2 which are node and script path)
+const args = process.argv.slice(2);
+const userMessage = args.length > 0 ? args.join(" ") : "What's my name?";
+
 let inputs = {
-  messages: [new HumanMessage("What's my name?")],
+  messages: [new HumanMessage(userMessage)],
 };
 for await (const { messages } of await graph.stream(inputs, {
   ...config,
   streamMode: "values",
 })) {
-  let msg = messages[messages?.length - 1];
-  if (msg?.content) {
-    console.log(msg.content);
-  } else if (msg?.tool_calls?.length > 0) {
-    console.log(msg.tool_calls);
-  } else {
-    console.log(msg);
-  }
+  const msg = messages[messages?.length - 1];
+  console.log(msg);
   console.log("-----\n");
 }
