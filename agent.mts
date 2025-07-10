@@ -310,7 +310,7 @@ const tools = [schemaDesignTool];
 
 const toolNode = new ToolNode(tools);
 const model = new ChatOpenAI({ model: "gpt-4o" });
-const boundModel = model.bindTools(tools);
+const boundModel = model.bindTools(tools, { parallel_tool_calls: false });
 
 const routeMessage = (state: typeof GraphState.State) => {
   const { messages: timeline } = state;
