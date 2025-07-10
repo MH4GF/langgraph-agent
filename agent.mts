@@ -9,22 +9,17 @@ import { ChatOpenAI } from "@langchain/openai";
 import { END, START, StateGraph } from "@langchain/langgraph";
 import { AIMessage, BaseMessage, HumanMessage } from "@langchain/core/messages";
 import { RunnableConfig } from "@langchain/core/runnables";
-import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import { createClient } from "@supabase/supabase-js";
-
-// PostgreSQL connection string for Supabase local
-const memory = PostgresSaver.fromConnString(
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
-);
-
-// Setup the PostgreSQL checkpointer
-await memory.setup();
+import { SupabaseSaver } from "./checkpoint-supabase.js";
 
 // Initialize Supabase client for local development
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_ANON_KEY!
 );
+
+// Create memory checkpointer using Supabase
+const memory = SupabaseSaver.fromClient(supabase);
 
 // Zod schemas for migration operations
 const ColumnSchema = z.object({
